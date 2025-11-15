@@ -49,3 +49,118 @@ header {
     border-radius: 4px;
     cursor: pointer;
 }
+/* --- Form --- */
+.app-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 30px;
+    padding: 20px;
+    background-color: #fdfdfd;
+    border-radius: 8px;
+    border: 1px solid #eee;
+}
+
+.app-form h3 {
+    width: 100%;
+    margin: 0 0 10px 0;
+    text-align: center;
+}
+
+.app-form input[type="text"] {
+    flex: 1 1 200px; /* Grow, shrink, base width */
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+.app-form button {
+    flex-basis: 150px;
+    padding: 12px 20px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.2s;
+}
+
+.app-form button:hover {
+    background-color: #2980b9;
+}
+
+/* --- List & Table --- */
+.app-list {
+    width: 100%;
+    overflow-x: auto; /* For small screens */
+}
+
+.app-list table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.app-list th,
+.app-list td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+.app-list th {
+    background-color: #f9f9f9;
+}
+
+.app-item a {
+    color: #3498db;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.app-item a:hover {
+    text-decoration: underline;
+}
+
+.app-item select {
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.app-item .delete-btn {
+    background: none;
+    border: 1px solid #e74c3c;
+    color: #e74c3c;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.app-item .delete-btn:hover {
+    background-color: #e74c3c;
+    color: white;
+}
+
+/* --- Utility --- */
+.error {
+    color: #e74c3c;
+    font-weight: bold;
+    text-align: center;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid #eee;
+    margin: 30px 0;
+}
+
+/* Move logout button */
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}

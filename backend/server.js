@@ -23,16 +23,16 @@ app.use(express.json());
 app.use(session({
     secret: process.env.SESSION_SECRET,
     resave: false,
-    saveUninitialized: false, // Don't create session until something stored
+    saveUninitialized: false, 
     cookie: { 
-        secure: false, // Set to true if using HTTPS in production
+        secure: false, 
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
 }));
 
 // --- Passport Setup ---
 app.use(passport.initialize());
-app.use(passport.session()); // Use session to store login state
+app.use(passport.session()); 
 
 // --- Database Connection ---
 const pool = new Pool({
@@ -50,64 +50,71 @@ passport.use(new GoogleStrategy(
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         callbackURL: "http://localhost:5000/auth/google/callback",
         scope: ['profile', 'email', 'https://www.googleapis.com/auth/gmail.readonly'],
-        accessType: 'offline', // This is what gets us the refresh_token
-        prompt: 'consent'      // This forces the consent screen every time (good for testing)
+        accessType: 'offline', 
+        prompt: 'consent'
     },
     async (accessToken, refreshToken, profile, done) => {
         const { id, displayName, emails } = profile;
         const email = emails[0].value;
         console.log("--- Google Callback Info ---");
-        console.log("Access Token:", accessToken.substring(0, 10) + "..."); 
-        console.log("Refresh Token:", refreshToken); // This is the magic key!
-        console.log("Profile Name:", displayName);
+        console.log("Refresh Token:", refreshToken); 
         
         if (!refreshToken) {
-            console.warn("WARNING: No refresh token received. User may have already granted consent.");
+            console.warn("WARNING: No refresh token received.");
         }
 
         try {
-            // Check if user already exists
             let user = await pool.query("SELECT * FROM users WHERE google_id = $1", [id]);
 
             if (user.rows.length === 0) {
-                // If not, create them and save the refresh token
                 user = await pool.query(
                     "INSERT INTO users (google_id, username, email, refresh_token) VALUES ($1, $2, $3, $4) RETURNING *",
                     [id, displayName, email, refreshToken]
                 );
                 console.log("Created new user:", user.rows[0].username);
             } else {
-                // If they exist, update their refresh token (it might change)
+                // Update token if it's different (or null)
                 user = await pool.query(
-                    "UPDATE users SET refresh_token = $1, username = $2 WHERE google_id = $3 RETURNING *",
+                    "UPDATE users SET refresh_token = COALESCE($1, refresh_token), username = $2 WHERE google_id = $3 RETURNING *",
                     [refreshToken, displayName, id]
                 );
                 console.log("Updated existing user:", user.rows[0].username);
             }
             
-            return done(null, user.rows[0]); // Send user to passport
+            return done(null, user.rows[0]); 
         } catch (err) {
             console.error(err);
             return done(err, null);
         }
     }
 ));
+
 // --- Passport Session Management ---
-// Saves user ID to session
 passport.serializeUser((user, done) => {
     done(null, user.id);
 });
 
-// Retrieves user from session using ID
 passport.deserializeUser(async (id, done) => {
     try {
-        // Only select non-sensitive info
         const user = await pool.query("SELECT id, username, email FROM users WHERE id = $1", [id]);
         done(null, user.rows[0]);
     } catch (err) {
         done(err, null);
     }
 });
+// --- NEW MIDDLEWARE ---
+// This function checks if a user is logged in
+const isAuthenticated = (req, res, next) => {
+    if (req.user) {
+        // If req.user exists, they are logged in.
+        // passport adds req.user from the session
+        return next(); // Continue to the next function (the API route)
+    } else {
+        // If not logged in, send an error
+        res.status(401).json({ error: "User not authenticated" });
+    }
+};
+
 // --- AUTH ROUTES ---
 
 // 1. The "Sign in with Google" button links here
@@ -117,9 +124,8 @@ app.get('/auth/google',
 
 // 2. Google redirects to this URL after login
 app.get('/auth/google/callback',
-    passport.authenticate('google', { failureRedirect: 'http://localhost:3000' }), // On failure, redirect to frontend
+    passport.authenticate('google', { failureRedirect: 'http://localhost:3000' }),
     (req, res) => {
-        // Successful authentication, redirect to the frontend.
         res.redirect('http://localhost:3000');
     }
 );
@@ -127,7 +133,6 @@ app.get('/auth/google/callback',
 // 3. Frontend checks this route to see if user is logged in
 app.get('/api/get-user', (req, res) => {
     if (req.user) {
-        // req.user is added by passport
         res.status(200).json(req.user);
     } else {
         res.status(401).json({ error: "Not logged in" });
@@ -140,6 +145,87 @@ app.get('/api/logout', (req, res, next) => {
         if (err) { return next(err); }
         res.redirect('http://localhost:3000');
     });
+});
+
+// --- NEW API ROUTES (for Job Applications) ---
+
+// [READ] Get all applications for the logged-in user
+// We use our new 'isAuthenticated' middleware to protect this route
+app.get('/api/applications', isAuthenticated, async (req, res) => {
+    try {
+        const result = await pool.query(
+            "SELECT * FROM applications WHERE user_id = $1 ORDER BY application_date DESC",
+            [req.user.id] // req.user.id comes from passport
+        );
+        res.status(200).json(result.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// [CREATE] Add a new application for the logged-in user
+app.post('/api/applications', isAuthenticated, async (req, res) => {
+    const { company_name, job_title, job_url, status, notes } = req.body;
+    
+    if (!company_name || !job_title) {
+        return res.status(400).json({ error: "company_name and job_title are required." });
+    }
+
+    try {
+        const newApp = await pool.query(
+            "INSERT INTO applications (user_id, company_name, job_title, job_url, status, notes) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+            [req.user.id, company_name, job_title, job_url, status || 'Applied', notes]
+        );
+        res.status(201).json(newApp.rows[0]);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// [UPDATE] Update an application
+app.put('/api/applications/:id', isAuthenticated, async (req, res) => {
+    const { id } = req.params;
+    const { company_name, job_title, job_url, status, notes } = req.body;
+
+    try {
+        const updatedApp = await pool.query(
+            `UPDATE applications 
+             SET company_name = $1, job_title = $2, job_url = $3, status = $4, notes = $5 
+             WHERE id = $6 AND user_id = $7 
+             RETURNING *`,
+            [company_name, job_title, job_url, status, notes, id, req.user.id] // Check user_id to make sure they own this app
+        );
+
+        if (updatedApp.rows.length === 0) {
+            return res.status(404).json({ error: "Application not found or you don't own it." });
+        }
+        res.status(200).json(updatedApp.rows[0]);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// [DELETE] Delete an application
+app.delete('/api/applications/:id', isAuthenticated, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const deleteOp = await pool.query(
+            "DELETE FROM applications WHERE id = $1 AND user_id = $2",
+            [id, req.user.id] // Check user_id
+        );
+
+        if (deleteOp.rowCount === 0) {
+            return res.status(404).json({ error: "Application not found or you don't own it." });
+        }
+        res.status(204).send(); // Success, no content to send back
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ error: "Server error" });
+    }
 });
 
 

@@ -6,6 +6,8 @@ import './App.css';
 axios.defaults.withCredentials = true;
 
 const API_URL = 'http://localhost:5000';
+const API_APPLICATIONS_URL = 'http://localhost:5000/api/applications';
+
 
 function App() {
     const [user, setUser] = useState(null);
@@ -46,19 +48,16 @@ function App() {
         <div className="app-container">
             <header>
                 <h1>JobTrackr AI</h1>
+                {user && (
+                    <button onClick={logout} className="logout-btn">
+                        Logout
+                    </button>
+                )}
             </header>
 
             {user ? (
                 // --- USER IS LOGGED IN ---
-                <div className="dashboard">
-                    <h2>Welcome, {user.username}!</h2>
-                    <p>You are logged in with: {user.email}</p>
-                    <button onClick={logout} className="logout-btn">
-                        Logout
-                    </button>
-                    <hr />
-                    <p>Phase 1 is complete. Phase 2 will be building the dashboard here.</p>
-                </div>
+                <Dashboard user={user} />
             ) : (
                 // --- USER IS LOGGED OUT ---
                 <div className="login-container">
@@ -70,6 +69,201 @@ function App() {
                 </div>
             )}
         </div>
+    );
+}
+
+// --- NEW DASHBOARD COMPONENT ---
+function Dashboard({ user }) {
+    const [applications, setApplications] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    // Fetch all applications for this user
+    const fetchApplications = async () => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            const response = await axios.get(API_APPLICATIONS_URL);
+            setApplications(response.data);
+        } catch (err) {
+            setError(err.response?.data?.error || "Failed to fetch applications.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // Run fetchApplications() once when the dashboard loads
+    useEffect(() => {
+        fetchApplications();
+    }, []);
+
+    // --- CRUD Functions ---
+
+    const addApplication = async (appData) => {
+        try {
+            await axios.post(API_APPLICATIONS_URL, appData);
+            fetchApplications(); // Refresh list
+        } catch (err) {
+            alert("Error adding application: " + err.message);
+        }
+    };
+
+    const updateApplication = async (id, updatedData) => {
+        try {
+            await axios.put(`${API_APPLICATIONS_URL}/${id}`, updatedData);
+            fetchApplications(); // Refresh list
+        } catch (err) {
+            alert("Error updating application: " + err.message);
+        }
+    };
+
+    const deleteApplication = async (id) => {
+        if (window.confirm("Are you sure you want to delete this application?")) {
+            try {
+                await axios.delete(`${API_APPLICATIONS_URL}/${id}`);
+                fetchApplications(); // Refresh list
+            } catch (err) {
+                alert("Error deleting application: " + err.message);
+            }
+        }
+    };
+
+    return (
+        <div className="dashboard">
+            <h2>Welcome, {user.username}!</h2>
+            <ApplicationForm onAdd={addApplication} />
+            <hr />
+            {isLoading && <p>Loading applications...</p>}
+            {error && <p className="error">{error}</p>}
+            {!isLoading && !error && (
+                <ApplicationList 
+                    applications={applications} 
+                    onUpdate={updateApplication}
+                    onDelete={deleteApplication}
+                />
+            )}
+        </div>
+    );
+}
+
+// --- NEW APPLICATION FORM COMPONENT ---
+function ApplicationForm({ onAdd }) {
+    const [company, setCompany] = useState('');
+    const [title, setTitle] = useState('');
+    const [url, setUrl] = useState('');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!company || !title) {
+            alert("Company and Title are required.");
+            return;
+        }
+        
+        onAdd({
+            company_name: company,
+            job_title: title,
+            job_url: url,
+            status: 'Applied'
+        });
+
+        setCompany('');
+        setTitle('');
+        setUrl('');
+    };
+
+    return (
+        <form className="app-form" onSubmit={handleSubmit}>
+            <h3>Add New Application</h3>
+            <input 
+                type="text" 
+                placeholder="Company Name" 
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                required 
+            />
+            <input 
+                type="text" 
+                placeholder="Job Title" 
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required 
+            />
+            <input 
+                type="text" 
+                placeholder="Job URL" 
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+            />
+            <button type="submit">Add Application</button>
+        </form>
+    );
+}
+
+// --- NEW APPLICATION LIST COMPONENT ---
+function ApplicationList({ applications, onUpdate, onDelete }) {
+    if (applications.length === 0) {
+        return <p>No applications tracked yet. Add one above!</p>;
+    }
+
+    return (
+        <div className="app-list">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Company</th>
+                        <th>Job Title</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {applications.map(app => (
+                        <ApplicationItem 
+                            key={app.id} 
+                            app={app} 
+                            onUpdate={onUpdate}
+                            onDelete={onDelete}
+                        />
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// --- NEW APPLICATION ITEM COMPONENT ---
+function ApplicationItem({ app, onUpdate, onDelete }) {
+    
+    const handleStatusChange = (e) => {
+        const newStatus = e.target.value;
+        onUpdate(app.id, {
+            ...app, // Spread all existing app data
+            status: newStatus // ...but change the status
+        });
+    };
+
+    return (
+        <tr className="app-item">
+            <td>{app.company_name}</td>
+            <td>
+                <a href={app.job_url} target="_blank" rel="noopener noreferrer">
+                    {app.job_title}
+                </a>
+            </td>
+            <td>
+                <select value={app.status} onChange={handleStatusChange}>
+                    <option value="Applied">Applied</option>
+                    <option value="Interviewing">Interviewing</option>
+                    <option value="Offered">Offered</option>
+                    <option value="Rejected">Rejected</option>
+                </select>
+            </td>
+            <td className="actions">
+                <button className="delete-btn" onClick={() => onDelete(app.id)}>
+                    Delete
+                </button>
+            </td>
+        </tr>
     );
 }
 
